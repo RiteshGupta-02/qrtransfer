@@ -315,12 +315,12 @@
 
       <div class="row">
         <div class="field">
-          <label>Chunk size <span class="val mono" id="chunkVal">400 B</span></label>
-          <input type="range" id="chunkSize" min="120" max="900" step="20" value="400">
+          <label>Chunk size <span class="val mono" id="chunkVal">180 B</span></label>
+          <input type="range" id="chunkSize" min="80" max="900" step="20" value="180">
         </div>
         <div class="field">
-          <label>Frame rate <span class="val mono" id="fpsVal">12 fps</span></label>
-          <input type="range" id="fpsRange" min="4" max="24" step="1" value="12">
+          <label>Frame rate <span class="val mono" id="fpsVal">7 fps</span></label>
+          <input type="range" id="fpsRange" min="3" max="24" step="1" value="7">
         </div>
       </div>
 
@@ -356,6 +356,7 @@
       <div class="status hidden" id="recvStatus">
         <div class="line"><span class="k" id="recvFileLabel">Waiting for header frame…</span><span class="mono" id="recvPct">0%</span></div>
         <div class="bar"><div class="fill" id="recvFill"></div></div>
+        <div class="line"><span class="k">Camera frames seen / QR codes decoded</span><span class="mono" id="recvDiag">0 / 0</span></div>
         <div class="grid" id="recvGrid"></div>
         <div class="log mono" id="recvLog"></div>
       </div>
@@ -664,6 +665,7 @@ const recvFileLabel = document.getElementById('recvFileLabel');
 const recvPct = document.getElementById('recvPct');
 const recvFill = document.getElementById('recvFill');
 const recvGrid = document.getElementById('recvGrid');
+const recvDiag = document.getElementById('recvDiag');
 const recvLog = document.getElementById('recvLog');
 const recvResult = document.getElementById('recvResult');
 const resultName = document.getElementById('resultName');
@@ -684,7 +686,23 @@ function logLine(html){
 
 recvStart.onclick = async () => {
   try{
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal:'environment' } } });
+    // Request the highest resolution the device will give us — dense QR
+    // frames need real pixels to decode reliably, the default 640x480
+    // that browsers fall back to is often not enough.
+    const constraints = {
+      video: {
+        facingMode: { ideal:'environment' },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      }
+    };
+    let stream;
+    try{
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+    }catch(e){
+      // some devices reject the high-res ask outright — fall back gracefully
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal:'environment' } } });
+    }
     video.srcObject = stream;
     video.classList.remove('hidden');
     reticle.classList.remove('hidden');
@@ -696,8 +714,9 @@ recvStart.onclick = async () => {
     recvFileLabel.textContent = 'Waiting for header frame…';
     recvPct.textContent = '0%';
     recvFill.style.width = '0%';
+    recvDiag.textContent = '0 / 0';
 
-    recvState = { stream, dec:null, header:null, lastText:null };
+    recvState = { stream, dec:null, header:null, lastText:null, framesSeen:0, framesDecoded:0 };
     recvStart.classList.add('hidden');
     recvStop.classList.remove('hidden');
     scanLoop();
@@ -727,7 +746,13 @@ function scanLoop(){
   workCtx.drawImage(video, 0, 0, workCanvas.width, workCanvas.height);
   const imageData = workCtx.getImageData(0, 0, workCanvas.width, workCanvas.height);
   const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts:'dontInvert' });
+
+  recvState.framesSeen++;
+  if(recvState.framesSeen % 10 === 0){
+    recvDiag.textContent = recvState.framesSeen + ' / ' + recvState.framesDecoded;
+  }
   if(!code) return;
+  recvState.framesDecoded++;
   if(code.data === recvState.lastText) return; // same frame still on screen
   recvState.lastText = code.data;
 
